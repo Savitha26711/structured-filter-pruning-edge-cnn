@@ -1,0 +1,1204 @@
+{
+  "nbformat": 4,
+  "nbformat_minor": 0,
+  "metadata": {
+    "colab": {
+      "provenance": [],
+      "gpuType": "T4",
+      "authorship_tag": "ABX9TyPmxBcZD0bpdIIDjua2Tyik",
+      "include_colab_link": true
+    },
+    "kernelspec": {
+      "name": "python3",
+      "display_name": "Python 3"
+    },
+    "language_info": {
+      "name": "python"
+    },
+    "accelerator": "GPU"
+  },
+  "cells": [
+    {
+      "cell_type": "markdown",
+      "metadata": {
+        "id": "view-in-github",
+        "colab_type": "text"
+      },
+      "source": [
+        "<a href=\"https://colab.research.google.com/github/Savitha26711/structured-filter-pruning-edge-cnn/blob/main/structured-filter-pruning-edge-cnn\" target=\"_parent\"><img src=\"https://colab.research.google.com/assets/colab-badge.svg\" alt=\"Open In Colab\"/></a>"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {
+        "colab": {
+          "base_uri": "https://localhost:8080/"
+        },
+        "id": "qAAbrmCweDrp",
+        "outputId": "dec06972-d168-4e2b-97ce-5111117b40f5"
+      },
+      "outputs": [
+        {
+          "output_type": "stream",
+          "name": "stdout",
+          "text": [
+            "Python version: 3.13.15 (main, Aug  6 2026, 11:06:22) [GCC 13.3.0]\n",
+            "Operating System: Linux-6.6.122+-x86_64-with-glibc2.39\n",
+            "PyTorch version: 2.11.0+cu130\n",
+            "GPU available: Tesla T4\n",
+            "CUDA version: 13.0\n",
+            "Setup completed successfully!\n"
+          ]
+        }
+      ],
+      "source": [
+        "\n",
+        "# Step 1: Check the Colab environment\n",
+        "\n",
+        "import sys\n",
+        "import torch\n",
+        "import platform\n",
+        "\n",
+        "print(\"Python version:\", sys.version)\n",
+        "print(\"Operating System:\", platform.platform())\n",
+        "print(\"PyTorch version:\", torch.__version__)\n",
+        "\n",
+        "if torch.cuda.is_available():\n",
+        "    print(\"GPU available:\", torch.cuda.get_device_name(0))\n",
+        "else:\n",
+        "    print(\"GPU not available. We can use CPU.\")\n",
+        "\n",
+        "print(\"CUDA version:\", torch.version.cuda)\n",
+        "print(\"Setup completed successfully!\")\n"
+      ]
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "\n",
+        "# Step 2: Download and inspect the CIFAR-10 dataset\n",
+        "\n",
+        "import torch\n",
+        "import torchvision\n",
+        "import torchvision.transforms as transforms\n",
+        "import matplotlib.pyplot as plt\n",
+        "\n",
+        "# Select GPU if available\n",
+        "device = torch.device(\"cuda\" if torch.cuda.is_available() else \"cpu\")\n",
+        "print(\"Selected device:\", device)\n",
+        "\n",
+        "# Convert images into PyTorch tensors\n",
+        "transform = transforms.ToTensor()\n",
+        "\n",
+        "# Download training and testing datasets\n",
+        "train_dataset = torchvision.datasets.CIFAR10(\n",
+        "    root=\"./data\",\n",
+        "    train=True,\n",
+        "    download=True,\n",
+        "    transform=transform\n",
+        ")\n",
+        "\n",
+        "test_dataset = torchvision.datasets.CIFAR10(\n",
+        "    root=\"./data\",\n",
+        "    train=False,\n",
+        "    download=True,\n",
+        "    transform=transform\n",
+        ")\n",
+        "\n",
+        "# CIFAR-10 class names\n",
+        "classes = train_dataset.classes\n",
+        "\n",
+        "print(\"\\nTraining images:\", len(train_dataset))\n",
+        "print(\"Testing images:\", len(test_dataset))\n",
+        "print(\"Number of classes:\", len(classes))\n",
+        "print(\"Classes:\", classes)\n",
+        "\n",
+        "# Display one sample image\n",
+        "image, label = train_dataset[0]\n",
+        "\n",
+        "plt.figure(figsize=(4, 4))\n",
+        "plt.imshow(image.permute(1, 2, 0))\n",
+        "plt.title(f\"Sample image: {classes[label]}\")\n",
+        "plt.axis(\"off\")\n",
+        "plt.show()\n",
+        "\n",
+        "print(\"Dataset loaded successfully!\")\n"
+      ],
+      "metadata": {
+        "colab": {
+          "base_uri": "https://localhost:8080/",
+          "height": 506
+        },
+        "id": "ubRzDx_reZZa",
+        "outputId": "4dbc0cba-cdeb-4d96-bf0d-46d97a9cf3dc"
+      },
+      "execution_count": null,
+      "outputs": [
+        {
+          "metadata": {
+            "tags": null
+          },
+          "name": "stdout",
+          "output_type": "stream",
+          "text": [
+            "Selected device: cuda\n"
+          ]
+        },
+        {
+          "output_type": "stream",
+          "name": "stderr",
+          "text": [
+            "100%|██████████| 170M/170M [47:15<00:00, 60.1kB/s]\n"
+          ]
+        },
+        {
+          "output_type": "stream",
+          "name": "stdout",
+          "text": [
+            "\n",
+            "Training images: 50000\n",
+            "Testing images: 10000\n",
+            "Number of classes: 10\n",
+            "Classes: ['airplane', 'automobile', 'bird', 'cat', 'deer', 'dog', 'frog', 'horse', 'ship', 'truck']\n"
+          ]
+        },
+        {
+          "output_type": "display_data",
+          "data": {
+            "text/plain": [
+              "<Figure size 400x400 with 1 Axes>"
+            ],
+            "image/png": "iVBORw0KGgoAAAANSUhEUgAAAUgAAAFeCAYAAADnm4a1AAAAOnRFWHRTb2Z0d2FyZQBNYXRwbG90bGliIHZlcnNpb24zLjEwLjAsIGh0dHBzOi8vbWF0cGxvdGxpYi5vcmcvlHJYcgAAAAlwSFlzAAAPYQAAD2EBqD+naQAAJQNJREFUeJzt3XmQnVW57/HfnvfueUgPSafTbSZiwqAnBIQLhjHJLTTlgFwLhUQpHAix1D+oUssKTlVRTxEKkniFgqCgVZaAFjJFuRU4CFiFTKIe4GQkhNDpTo+79+49rvuHRZ80yWI9YGOU8/1UWZKdJ2uv991v//pNZz3vijjnnAAAR4ke7wkAwD8rAhIAPAhIAPAgIAHAg4AEAA8CEgA8CEgA8CAgAcCDgAQADwISkyKRiK699tppG6+3t1dr166dtvH+lfT19eniiy9Wa2urIpGIrr/++uM9JbwNBOQ0e/7553XxxRerp6dH6XRaXV1duvDCC3XjjTce76nhH+grX/mKtm/frq997Wu6/fbbtWrVquM9JbwNEXqxp8/jjz+uc889V3PmzNGaNWvU2dmp/fv36w9/+IN27dqlnTt3Hu8pvqlIJKINGzZM211koVBQNBpVIpGYlvH+lXR2duqCCy7QHXfccbyngr9D/HhP4N3ke9/7nhobG/Xkk0+qqalpyu8dOnTo+EzqOEqlUsd7CsfNoUOHjroGjmV8fFy1tbXv/ITwtvBX7Gm0a9cuLVmy5JhfGO3t7VN+vW3bNp133nlqb29XKpXS4sWL9aMf/eioP9fb26sPfehDevjhh3Xqqacqk8nopJNO0sMPPyxJuvvuu3XSSScpnU5r6dKleuaZZ6b8+bVr16qurk67d+/WypUrVVtbq1mzZunb3/62LH95OHDggD772c+qo6NDqVRKS5Ys0a233mo6H2/8GeRtt92mSCSi3//+9/rSl76ktrY2NTU16fOf/7yKxaKGh4d1+eWXq7m5Wc3NzbrmmmuOmuO///u/68wzz1Rra6symYyWLl2qO++886j3zufz+tKXvqQZM2aovr5eq1ev1oEDB475c1brMb788st64YUX3vSYXz9G55y2bNmiSCSiSCQy5fceeeQRXXXVVWpvb9fs2bMn/+zWrVu1ZMkSpVIpzZo1S+vWrdPw8PBR77FlyxbNnTtXmUxGp512mh599FGdc845Ouecc950bngbHKbNihUrXH19vXv++eeDtcuWLXNr1651mzZtcjfeeKNbsWKFk+Q2b948pa6np8edcMIJbubMme7aa691mzZtcl1dXa6urs7dcccdbs6cOW7jxo1u48aNrrGx0c2fP99VKpXJP79mzRqXTqfdggUL3GWXXeY2b97sPvShDzlJ7pvf/OaU95LkNmzYMPnr1157zc2ePdt1d3e7b3/72+5HP/qRW716tZPkNm3aFDzGnp4et2bNmslfb9u2zUly73vf+9yqVavcli1b3GWXXeYkuWuuucadddZZ7tJLL3Vbt26dnONPfvKTKWPOnj3bXXXVVW7z5s3uuuuuc6eddpqT5O69994pdZdccomT5C677DK3ZcsWd8kll7hTTjnl7zrG5cuXu9CXzK5du9ztt9/uJLkLL7zQ3X777e7222+fcvyLFy92y5cvdzfeeKPbuHGjc865DRs2OEnuggsucDfeeKO7+uqrXSwWc8uWLXPFYnFy/K1btzpJ7uyzz3Y33HCD++pXv+paWlrcvHnz3PLly4OfCd4aAnIa/fa3v3WxWMzFYjF3xhlnuGuuucZt3759ygX+ulwud9RrK1eudHPnzp3yWk9Pj5PkHn/88cnXtm/f7iS5TCbj9u3bN/n6j3/8YyfJ7dixY/K1NWvWOElu/fr1k69Vq1V30UUXuWQy6fr7+ydff2N4XHHFFW7mzJluYGBgypw++clPusbGxmMewxvnfqyAXLlypatWq5Ovn3HGGS4SibgvfOELk6+Vy2U3e/bso77o3/iexWLRnXjiie68886bfO2pp55yktyXv/zlKbVr1679u47REpCvk+TWrVs35bXXj/+ss85y5XJ58vVDhw65ZDLpVqxYMeWb2+bNm50kd+uttzrnnCsUCq61tdUtW7bMlUqlybrbbrvNSSIg3wH8FXsaXXjhhXriiSe0evVqPffcc/rBD36glStXqqurS/fcc8+U2kwmM/nfIyMjGhgY0PLly7V7926NjIxMqV28eLHOOOOMyV+ffvrpkqTzzjtPc+bMOer13bt3HzW3q6++evK/I5GIrr76ahWLRT300EPHPBbnnO666y59+MMflnNOAwMDk/9buXKlRkZG9PTTT1tPzRRXXHHF5F87X5+3c05XXHHF5GuxWEynnnrqUcdy5HkbGhrSyMiIzj777ClzefDBByVJV1111ZQ/u379+r/rGB9++GHTjyVCrrzySsVisclfP/TQQyoWi/ryl7+saDQ6pa6hoUH33XefJOmPf/yjDh8+rCuvvFLx+H//88GnPvUpNTc3/93zwtH4R5pptmzZMt19990qFot67rnn9Ktf/UqbNm3SxRdfrGeffVaLFy+WJD322GPasGGDnnjiCeVyuSljjIyMqLGxcfLXR4agpMnf6+7uPubrQ0NDU16PRqOaO3fulNcWLlwoSdq7d+8xj6O/v1/Dw8O66aabdNNNNx2z5u3+w9NbOZ43Hsu9996r7373u3r22WdVKBQmXz8ycPft26doNKr3vOc9U/7s/Pnzp/z6nTzGN/PGee3bt0+SdMIJJ0x5PZlMau7cuZO///r/v/E44vG4ent7p32eICDfMclkUsuWLdOyZcu0cOFCfeYzn9Evf/lLbdiwQbt27dL555+vRYsW6brrrlN3d7eSyaTuv/9+bdq0SdVqdcpYR95tWF6fjruc1+fw6U9/WmvWrDlmzcknn/y2xn4rx3PksTz66KNavXq1PvjBD2rr1q2aOXOmEomEtm3bpp///OdveR7v5DG+mSPvgvHPjYD8Bzj11FMlSQcPHpQk/eY3v1GhUNA999wz5W5qx44d78j7V6tV7d69e/KuUZJeeuklSfLeebS1tam+vl6VSkUXXHDBOzKvt+quu+5SOp3W9u3bpywh2rZt25S6np4eVatV7dmzRwsWLJh8/Y3rUP9ZjrGnp0eS9OKLL0650y8Wi9qzZ8/k3F6v27lzp84999zJunK5rL17974jYf4/HT+DnEY7duw45t3b/fffL+m//wr1+p3SkbUjIyNHfaFPp82bN0/+t3NOmzdvViKR0Pnnn3/M+lgspo9//OO666679Oc///mo3+/v73/H5uoTi8UUiURUqVQmX9u7d69+/etfT6lbuXKlpL8tmznSG7uZ3uoxWpb5vB0XXHCBksmkbrjhhinXxC233KKRkRFddNFFkv72jba1tVU333yzyuXyZN3Pfvazo34UgenBHeQ0Wr9+vXK5nD760Y9q0aJFKhaLevzxx/WLX/xCvb29+sxnPiNJWrFihZLJpD784Q/r85//vLLZrG6++Wa1t7dP3mVOp3Q6rQcffFBr1qzR6aefrgceeED33Xefvv71r6utrc375zZu3KgdO3bo9NNP15VXXqnFixdr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\n"
+          },
+          "metadata": {}
+        },
+        {
+          "output_type": "stream",
+          "name": "stdout",
+          "text": [
+            "Dataset loaded successfully!\n"
+          ]
+        }
+      ]
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "\n",
+        "import torch\n",
+        "import torchvision\n",
+        "import torchvision.transforms as transforms\n",
+        "\n",
+        "transform = transforms.ToTensor()\n",
+        "\n",
+        "train_dataset = torchvision.datasets.CIFAR10(\n",
+        "    root=\"./data\",\n",
+        "    train=True,\n",
+        "    download=True,\n",
+        "    transform=transform\n",
+        ")\n",
+        "\n",
+        "test_dataset = torchvision.datasets.CIFAR10(\n",
+        "    root=\"./data\",\n",
+        "    train=False,\n",
+        "    download=True,\n",
+        "    transform=transform\n",
+        ")\n",
+        "\n",
+        "print(\"Training images:\", len(train_dataset))\n",
+        "print(\"Testing images:\", len(test_dataset))\n",
+        "print(\"Dataset ready!\")\n"
+      ],
+      "metadata": {
+        "colab": {
+          "base_uri": "https://localhost:8080/"
+        },
+        "id": "cg-LiSpf1Hkj",
+        "outputId": "673d5b69-5dfe-4726-81cd-d04b51e8a7b2"
+      },
+      "execution_count": 3,
+      "outputs": [
+        {
+          "output_type": "stream",
+          "name": "stdout",
+          "text": [
+            "Training images: 50000\n",
+            "Testing images: 10000\n",
+            "Dataset ready!\n"
+          ]
+        }
+      ]
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "\n",
+        "import torch\n",
+        "import torch.nn as nn\n",
+        "import torch.optim as optim\n",
+        "from torch.utils.data import DataLoader\n",
+        "import torchvision\n",
+        "import torchvision.transforms as transforms\n",
+        "import time\n",
+        "\n",
+        "torch.manual_seed(42)\n",
+        "device = torch.device(\"cuda\" if torch.cuda.is_available() else \"cpu\")\n",
+        "print(\"Training device:\", device)\n",
+        "\n",
+        "# Load CIFAR-10\n",
+        "transform = transforms.ToTensor()\n",
+        "\n",
+        "train_dataset = torchvision.datasets.CIFAR10(\n",
+        "    root=\"./data\", train=True, download=True, transform=transform\n",
+        ")\n",
+        "test_dataset = torchvision.datasets.CIFAR10(\n",
+        "    root=\"./data\", train=False, download=True, transform=transform\n",
+        ")\n",
+        "\n",
+        "train_loader = DataLoader(\n",
+        "    train_dataset, batch_size=128, shuffle=True, num_workers=2,\n",
+        "    pin_memory=(device.type == \"cuda\")\n",
+        ")\n",
+        "\n",
+        "# Define baseline CNN\n",
+        "class BaselineCNN(nn.Module):\n",
+        "    def __init__(self):\n",
+        "        super().__init__()\n",
+        "        self.features = nn.Sequential(\n",
+        "            nn.Conv2d(3, 32, 3, padding=1),\n",
+        "            nn.ReLU(),\n",
+        "            nn.Conv2d(32, 32, 3, padding=1),\n",
+        "            nn.ReLU(),\n",
+        "            nn.MaxPool2d(2),\n",
+        "            nn.Conv2d(32, 64, 3, padding=1),\n",
+        "            nn.ReLU(),\n",
+        "            nn.Conv2d(64, 64, 3, padding=1),\n",
+        "            nn.ReLU(),\n",
+        "            nn.MaxPool2d(2),\n",
+        "            nn.Conv2d(64, 128, 3, padding=1),\n",
+        "            nn.ReLU(),\n",
+        "            nn.AdaptiveAvgPool2d((1, 1))\n",
+        "        )\n",
+        "        self.classifier = nn.Linear(128, 10)\n",
+        "\n",
+        "    def forward(self, x):\n",
+        "        x = self.features(x)\n",
+        "        return self.classifier(torch.flatten(x, 1))\n",
+        "\n",
+        "model = BaselineCNN().to(device)\n",
+        "criterion = nn.CrossEntropyLoss()\n",
+        "optimizer = optim.Adam(model.parameters(), lr=0.001)\n",
+        "\n",
+        "# Train for 5 epochs\n",
+        "for epoch in range(5):\n",
+        "    model.train()\n",
+        "    total_loss, correct, total = 0.0, 0, 0\n",
+        "    start = time.perf_counter()\n",
+        "\n",
+        "    for images, labels in train_loader:\n",
+        "        images = images.to(device, non_blocking=True)\n",
+        "        labels = labels.to(device, non_blocking=True)\n",
+        "\n",
+        "        optimizer.zero_grad()\n",
+        "        outputs = model(images)\n",
+        "        loss = criterion(outputs, labels)\n",
+        "        loss.backward()\n",
+        "        optimizer.step()\n",
+        "\n",
+        "        total_loss += loss.item() * labels.size(0)\n",
+        "        correct += (outputs.argmax(1) == labels).sum().item()\n",
+        "        total += labels.size(0)\n",
+        "\n",
+        "    torch.cuda.synchronize() if device.type == \"cuda\" else None\n",
+        "    elapsed = time.perf_counter() - start\n",
+        "\n",
+        "    print(\n",
+        "        f\"Epoch {epoch + 1}/5 | \"\n",
+        "        f\"Loss: {total_loss / total:.4f} | \"\n",
+        "        f\"Train accuracy: {100 * correct / total:.2f}% | \"\n",
+        "        f\"Time: {elapsed:.1f}s\"\n",
+        "    )\n",
+        "\n",
+        "torch.save(model.state_dict(), \"baseline_cnn.pth\")\n",
+        "print(\"Baseline model saved successfully!\")\n"
+      ],
+      "metadata": {
+        "colab": {
+          "base_uri": "https://localhost:8080/"
+        },
+        "id": "pL0rpmeg_yhG",
+        "outputId": "29dde9bb-9671-4a4d-d06d-f5fb9fb0bf1a"
+      },
+      "execution_count": 4,
+      "outputs": [
+        {
+          "output_type": "stream",
+          "name": "stdout",
+          "text": [
+            "Training device: cuda\n",
+            "Epoch 1/5 | Loss: 1.8987 | Train accuracy: 27.86% | Time: 10.8s\n",
+            "Epoch 2/5 | Loss: 1.5816 | Train accuracy: 40.56% | Time: 8.3s\n",
+            "Epoch 3/5 | Loss: 1.4036 | Train accuracy: 48.59% | Time: 8.3s\n",
+            "Epoch 4/5 | Loss: 1.2903 | Train accuracy: 52.78% | Time: 8.8s\n",
+            "Epoch 5/5 | Loss: 1.1929 | Train accuracy: 56.94% | Time: 8.4s\n",
+            "Baseline model saved successfully!\n"
+          ]
+        }
+      ]
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "\n",
+        "# Step 5: Evaluate the baseline model\n",
+        "\n",
+        "import os\n",
+        "import time\n",
+        "import torch\n",
+        "import torch.nn as nn\n",
+        "from torch.utils.data import DataLoader\n",
+        "import torchvision\n",
+        "import torchvision.transforms as transforms\n",
+        "\n",
+        "device = torch.device(\"cuda\" if torch.cuda.is_available() else \"cpu\")\n",
+        "\n",
+        "# Recreate the same model architecture\n",
+        "class BaselineCNN(nn.Module):\n",
+        "    def __init__(self):\n",
+        "        super().__init__()\n",
+        "        self.features = nn.Sequential(\n",
+        "            nn.Conv2d(3, 32, 3, padding=1),\n",
+        "            nn.ReLU(),\n",
+        "            nn.Conv2d(32, 32, 3, padding=1),\n",
+        "            nn.ReLU(),\n",
+        "            nn.MaxPool2d(2),\n",
+        "            nn.Conv2d(32, 64, 3, padding=1),\n",
+        "            nn.ReLU(),\n",
+        "            nn.Conv2d(64, 64, 3, padding=1),\n",
+        "            nn.ReLU(),\n",
+        "            nn.MaxPool2d(2),\n",
+        "            nn.Conv2d(64, 128, 3, padding=1),\n",
+        "            nn.ReLU(),\n",
+        "            nn.AdaptiveAvgPool2d((1, 1))\n",
+        "        )\n",
+        "        self.classifier = nn.Linear(128, 10)\n",
+        "\n",
+        "    def forward(self, x):\n",
+        "        x = self.features(x)\n",
+        "        return self.classifier(torch.flatten(x, 1))\n",
+        "\n",
+        "model = BaselineCNN().to(device)\n",
+        "model.load_state_dict(torch.load(\"baseline_cnn.pth\", map_location=device))\n",
+        "model.eval()\n",
+        "\n",
+        "test_dataset = torchvision.datasets.CIFAR10(\n",
+        "    root=\"./data\",\n",
+        "    train=False,\n",
+        "    download=False,\n",
+        "    transform=transforms.ToTensor()\n",
+        ")\n",
+        "\n",
+        "test_loader = DataLoader(\n",
+        "    test_dataset,\n",
+        "    batch_size=256,\n",
+        "    shuffle=False,\n",
+        "    num_workers=2,\n",
+        "    pin_memory=(device.type == \"cuda\")\n",
+        ")\n",
+        "\n",
+        "# Measure test accuracy\n",
+        "correct = 0\n",
+        "total = 0\n",
+        "\n",
+        "with torch.no_grad():\n",
+        "    for images, labels in test_loader:\n",
+        "        images = images.to(device)\n",
+        "        labels = labels.to(device)\n",
+        "        outputs = model(images)\n",
+        "        predictions = outputs.argmax(dim=1)\n",
+        "        correct += (predictions == labels).sum().item()\n",
+        "        total += labels.size(0)\n",
+        "\n",
+        "test_accuracy = 100 * correct / total\n",
+        "\n",
+        "# Save model size\n",
+        "model_size_mb = os.path.getsize(\"baseline_cnn.pth\") / (1024 * 1024)\n",
+        "\n",
+        "# Warm-up before latency measurement\n",
+        "sample = torch.randn(1, 3, 32, 32, device=device)\n",
+        "\n",
+        "with torch.no_grad():\n",
+        "    for _ in range(20):\n",
+        "        model(sample)\n",
+        "\n",
+        "if device.type == \"cuda\":\n",
+        "    torch.cuda.synchronize()\n",
+        "\n",
+        "# Measure 1000 single-image inferences\n",
+        "latencies = []\n",
+        "\n",
+        "with torch.no_grad():\n",
+        "    for _ in range(1000):\n",
+        "        if device.type == \"cuda\":\n",
+        "            torch.cuda.synchronize()\n",
+        "\n",
+        "        start = time.perf_counter()\n",
+        "        model(sample)\n",
+        "\n",
+        "        if device.type == \"cuda\":\n",
+        "            torch.cuda.synchronize()\n",
+        "\n",
+        "        latencies.append((time.perf_counter() - start) * 1000)\n",
+        "\n",
+        "latencies.sort()\n",
+        "avg_latency = sum(latencies) / len(latencies)\n",
+        "p95_latency = latencies[int(0.95 * len(latencies)) - 1]\n",
+        "\n",
+        "print(\"===== BASELINE RESULTS =====\")\n",
+        "print(f\"Test accuracy: {test_accuracy:.2f}%\")\n",
+        "print(f\"Model file size: {model_size_mb:.3f} MB\")\n",
+        "print(f\"Average inference latency: {avg_latency:.3f} ms/image\")\n",
+        "print(f\"P95 inference latency: {p95_latency:.3f} ms/image\")\n",
+        "print(\"Inference runs: 1000 (after 20 warm-up runs)\")\n"
+      ],
+      "metadata": {
+        "colab": {
+          "base_uri": "https://localhost:8080/"
+        },
+        "id": "NWOjOUz4AZMB",
+        "outputId": "a69522ff-480c-47b7-b9cb-a17fd7ca085b"
+      },
+      "execution_count": 5,
+      "outputs": [
+        {
+          "output_type": "stream",
+          "name": "stdout",
+          "text": [
+            "===== BASELINE RESULTS =====\n",
+            "Test accuracy: 59.28%\n",
+            "Model file size: 0.542 MB\n",
+            "Average inference latency: 0.562 ms/image\n",
+            "P95 inference latency: 0.764 ms/image\n",
+            "Inference runs: 1000 (after 20 warm-up runs)\n"
+          ]
+        }
+      ]
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "\n",
+        "# Step 7: Build a structurally pruned CNN\n",
+        "\n",
+        "import torch\n",
+        "import torch.nn as nn\n",
+        "\n",
+        "device = torch.device(\"cuda\" if torch.cuda.is_available() else \"cpu\")\n",
+        "\n",
+        "class PrunedCNN(nn.Module):\n",
+        "    def __init__(self):\n",
+        "        super().__init__()\n",
+        "        self.features = nn.Sequential(\n",
+        "            nn.Conv2d(3, 24, 3, padding=1),\n",
+        "            nn.ReLU(),\n",
+        "            nn.Conv2d(24, 24, 3, padding=1),\n",
+        "            nn.ReLU(),\n",
+        "            nn.MaxPool2d(2),\n",
+        "\n",
+        "            nn.Conv2d(24, 48, 3, padding=1),\n",
+        "            nn.ReLU(),\n",
+        "            nn.Conv2d(48, 48, 3, padding=1),\n",
+        "            nn.ReLU(),\n",
+        "            nn.MaxPool2d(2),\n",
+        "\n",
+        "            nn.Conv2d(48, 96, 3, padding=1),\n",
+        "            nn.ReLU(),\n",
+        "            nn.AdaptiveAvgPool2d((1, 1))\n",
+        "        )\n",
+        "        self.classifier = nn.Linear(96, 10)\n",
+        "\n",
+        "    def forward(self, x):\n",
+        "        x = self.features(x)\n",
+        "        return self.classifier(torch.flatten(x, 1))\n",
+        "\n",
+        "\n",
+        "# Load the trained baseline weights\n",
+        "baseline = BaselineCNN().to(device)\n",
+        "baseline.load_state_dict(\n",
+        "    torch.load(\"baseline_cnn.pth\", map_location=device)\n",
+        ")\n",
+        "baseline.eval()\n",
+        "\n",
+        "pruned_model = PrunedCNN().to(device)\n",
+        "\n",
+        "# Copy selected filters and corresponding input-channel weights\n",
+        "with torch.no_grad():\n",
+        "    old_convs = [\n",
+        "        baseline.features[0],\n",
+        "        baseline.features[2],\n",
+        "        baseline.features[5],\n",
+        "        baseline.features[7],\n",
+        "        baseline.features[10]\n",
+        "    ]\n",
+        "    new_convs = [\n",
+        "        pruned_model.features[0],\n",
+        "        pruned_model.features[2],\n",
+        "        pruned_model.features[5],\n",
+        "        pruned_model.features[7],\n",
+        "        pruned_model.features[10]\n",
+        "    ]\n",
+        "\n",
+        "    previous_indices = torch.arange(3, device=device)\n",
+        "\n",
+        "    for old_layer, new_layer in zip(old_convs, new_convs):\n",
+        "        output_indices = torch.arange(\n",
+        "            new_layer.out_channels, device=device\n",
+        "        )\n",
+        "        new_layer.weight.copy_(\n",
+        "            old_layer.weight[output_indices][:, previous_indices]\n",
+        "        )\n",
+        "        new_layer.bias.copy_(old_layer.bias[output_indices])\n",
+        "        previous_indices = output_indices\n",
+        "\n",
+        "    # Copy the matching classifier weights\n",
+        "    pruned_model.classifier.weight.copy_(\n",
+        "        baseline.classifier.weight[:, previous_indices]\n",
+        "    )\n",
+        "    pruned_model.classifier.bias.copy_(\n",
+        "        baseline.classifier.bias\n",
+        "    )\n",
+        "\n",
+        "print(\"Baseline parameters:\",\n",
+        "      sum(p.numel() for p in baseline.parameters()))\n",
+        "print(\"Pruned parameters:\",\n",
+        "      sum(p.numel() for p in pruned_model.parameters()))\n",
+        "print(\"Pruned CNN created successfully!\")\n"
+      ],
+      "metadata": {
+        "colab": {
+          "base_uri": "https://localhost:8080/"
+        },
+        "id": "cWQLbZGqAv3V",
+        "outputId": "f727b266-d90e-450c-d295-5dbcf6caa612"
+      },
+      "execution_count": 6,
+      "outputs": [
+        {
+          "output_type": "stream",
+          "name": "stdout",
+          "text": [
+            "Baseline parameters: 140714\n",
+            "Pruned parameters: 79618\n",
+            "Pruned CNN created successfully!\n"
+          ]
+        }
+      ]
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "\n",
+        "# Step 9: Fine-tune the pruned CNN\n",
+        "\n",
+        "import torch\n",
+        "import torch.nn as nn\n",
+        "import torch.optim as optim\n",
+        "import time\n",
+        "from torch.utils.data import DataLoader\n",
+        "import torchvision\n",
+        "import torchvision.transforms as transforms\n",
+        "\n",
+        "device = torch.device(\"cuda\" if torch.cuda.is_available() else \"cpu\")\n",
+        "pruned_model = pruned_model.to(device)\n",
+        "\n",
+        "transform = transforms.ToTensor()\n",
+        "\n",
+        "train_dataset = torchvision.datasets.CIFAR10(\n",
+        "    root=\"./data\",\n",
+        "    train=True,\n",
+        "    download=False,\n",
+        "    transform=transform\n",
+        ")\n",
+        "\n",
+        "train_loader = DataLoader(\n",
+        "    train_dataset,\n",
+        "    batch_size=128,\n",
+        "    shuffle=True,\n",
+        "    num_workers=2,\n",
+        "    pin_memory=(device.type == \"cuda\")\n",
+        ")\n",
+        "\n",
+        "criterion = nn.CrossEntropyLoss()\n",
+        "optimizer = optim.Adam(pruned_model.parameters(), lr=0.0005)\n",
+        "\n",
+        "for epoch in range(5):\n",
+        "    pruned_model.train()\n",
+        "    total_loss = 0.0\n",
+        "    correct = 0\n",
+        "    total = 0\n",
+        "    start = time.perf_counter()\n",
+        "\n",
+        "    for images, labels in train_loader:\n",
+        "        images = images.to(device, non_blocking=True)\n",
+        "        labels = labels.to(device, non_blocking=True)\n",
+        "\n",
+        "        optimizer.zero_grad()\n",
+        "        outputs = pruned_model(images)\n",
+        "        loss = criterion(outputs, labels)\n",
+        "        loss.backward()\n",
+        "        optimizer.step()\n",
+        "\n",
+        "        total_loss += loss.item() * labels.size(0)\n",
+        "        correct += (outputs.argmax(1) == labels).sum().item()\n",
+        "        total += labels.size(0)\n",
+        "\n",
+        "    if device.type == \"cuda\":\n",
+        "        torch.cuda.synchronize()\n",
+        "\n",
+        "    print(\n",
+        "        f\"Pruned Epoch {epoch + 1}/5 | \"\n",
+        "        f\"Loss: {total_loss / total:.4f} | \"\n",
+        "        f\"Train accuracy: {100 * correct / total:.2f}% | \"\n",
+        "        f\"Time: {time.perf_counter() - start:.1f}s\"\n",
+        "    )\n",
+        "\n",
+        "torch.save(pruned_model.state_dict(), \"pruned_cnn.pth\")\n",
+        "print(\"Pruned model saved successfully!\")\n"
+      ],
+      "metadata": {
+        "colab": {
+          "base_uri": "https://localhost:8080/"
+        },
+        "id": "O3UfSywUA3FK",
+        "outputId": "b0791382-65b3-42ab-c7ed-a85bbc82b244"
+      },
+      "execution_count": 8,
+      "outputs": [
+        {
+          "output_type": "stream",
+          "name": "stdout",
+          "text": [
+            "Pruned Epoch 1/5 | Loss: 1.0728 | Train accuracy: 61.85% | Time: 8.2s\n",
+            "Pruned Epoch 2/5 | Loss: 1.0473 | Train accuracy: 62.60% | Time: 13.1s\n",
+            "Pruned Epoch 3/5 | Loss: 1.0250 | Train accuracy: 63.65% | Time: 8.5s\n",
+            "Pruned Epoch 4/5 | Loss: 1.0114 | Train accuracy: 63.99% | Time: 7.8s\n",
+            "Pruned Epoch 5/5 | Loss: 0.9901 | Train accuracy: 64.98% | Time: 7.8s\n",
+            "Pruned model saved successfully!\n"
+          ]
+        }
+      ]
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "\n",
+        "# Step 10: Evaluate the pruned model\n",
+        "\n",
+        "import os\n",
+        "import time\n",
+        "import torch\n",
+        "import torch.nn as nn\n",
+        "import torchvision\n",
+        "import torchvision.transforms as transforms\n",
+        "from torch.utils.data import DataLoader\n",
+        "\n",
+        "device = torch.device(\"cuda\" if torch.cuda.is_available() else \"cpu\")\n",
+        "\n",
+        "# Recreate the pruned architecture\n",
+        "class PrunedCNN(nn.Module):\n",
+        "    def __init__(self):\n",
+        "        super().__init__()\n",
+        "        self.features = nn.Sequential(\n",
+        "            nn.Conv2d(3, 24, 3, padding=1),\n",
+        "            nn.ReLU(),\n",
+        "            nn.Conv2d(24, 24, 3, padding=1),\n",
+        "            nn.ReLU(),\n",
+        "            nn.MaxPool2d(2),\n",
+        "            nn.Conv2d(24, 48, 3, padding=1),\n",
+        "            nn.ReLU(),\n",
+        "            nn.Conv2d(48, 48, 3, padding=1),\n",
+        "            nn.ReLU(),\n",
+        "            nn.MaxPool2d(2),\n",
+        "            nn.Conv2d(48, 96, 3, padding=1),\n",
+        "            nn.ReLU(),\n",
+        "            nn.AdaptiveAvgPool2d((1, 1))\n",
+        "        )\n",
+        "        self.classifier = nn.Linear(96, 10)\n",
+        "\n",
+        "    def forward(self, x):\n",
+        "        x = self.features(x)\n",
+        "        return self.classifier(torch.flatten(x, 1))\n",
+        "\n",
+        "pruned_model = PrunedCNN().to(device)\n",
+        "pruned_model.load_state_dict(\n",
+        "    torch.load(\"pruned_cnn.pth\", map_location=device)\n",
+        ")\n",
+        "pruned_model.eval()\n",
+        "\n",
+        "test_dataset = torchvision.datasets.CIFAR10(\n",
+        "    root=\"./data\",\n",
+        "    train=False,\n",
+        "    download=False,\n",
+        "    transform=transforms.ToTensor()\n",
+        ")\n",
+        "\n",
+        "test_loader = DataLoader(\n",
+        "    test_dataset,\n",
+        "    batch_size=256,\n",
+        "    shuffle=False,\n",
+        "    num_workers=2,\n",
+        "    pin_memory=(device.type == \"cuda\")\n",
+        ")\n",
+        "\n",
+        "# Measure test accuracy\n",
+        "correct = 0\n",
+        "total = 0\n",
+        "\n",
+        "with torch.no_grad():\n",
+        "    for images, labels in test_loader:\n",
+        "        images = images.to(device, non_blocking=True)\n",
+        "        labels = labels.to(device, non_blocking=True)\n",
+        "        predictions = pruned_model(images).argmax(dim=1)\n",
+        "        correct += (predictions == labels).sum().item()\n",
+        "        total += labels.size(0)\n",
+        "\n",
+        "test_accuracy = 100 * correct / total\n",
+        "\n",
+        "# Actual saved model size\n",
+        "model_size_mb = os.path.getsize(\"pruned_cnn.pth\") / (1024 * 1024)\n",
+        "\n",
+        "# Warm-up\n",
+        "sample = torch.randn(1, 3, 32, 32, device=device)\n",
+        "\n",
+        "with torch.no_grad():\n",
+        "    for _ in range(20):\n",
+        "        pruned_model(sample)\n",
+        "\n",
+        "if device.type == \"cuda\":\n",
+        "    torch.cuda.synchronize()\n",
+        "\n",
+        "# Benchmark 1000 individual inferences\n",
+        "latencies = []\n",
+        "\n",
+        "with torch.no_grad():\n",
+        "    for _ in range(1000):\n",
+        "        if device.type == \"cuda\":\n",
+        "            torch.cuda.synchronize()\n",
+        "\n",
+        "        start = time.perf_counter()\n",
+        "        pruned_model(sample)\n",
+        "\n",
+        "        if device.type == \"cuda\":\n",
+        "            torch.cuda.synchronize()\n",
+        "\n",
+        "        latencies.append((time.perf_counter() - start) * 1000)\n",
+        "\n",
+        "latencies.sort()\n",
+        "avg_latency = sum(latencies) / len(latencies)\n",
+        "p95_latency = latencies[int(0.95 * len(latencies)) - 1]\n",
+        "\n",
+        "print(\"===== PRUNED MODEL RESULTS =====\")\n",
+        "print(f\"Test accuracy: {test_accuracy:.2f}%\")\n",
+        "print(f\"Model file size: {model_size_mb:.3f} MB\")\n",
+        "print(f\"Average inference latency: {avg_latency:.3f} ms/image\")\n",
+        "print(f\"P95 inference latency: {p95_latency:.3f} ms/image\")\n",
+        "print(\"Inference runs: 1000 (after 20 warm-up runs)\")\n"
+      ],
+      "metadata": {
+        "colab": {
+          "base_uri": "https://localhost:8080/"
+        },
+        "id": "Gm3nSnkSBvhb",
+        "outputId": "a0aaf3e4-96b9-45ba-c677-d34e63f4bc6b"
+      },
+      "execution_count": 9,
+      "outputs": [
+        {
+          "output_type": "stream",
+          "name": "stdout",
+          "text": [
+            "===== PRUNED MODEL RESULTS =====\n",
+            "Test accuracy: 65.14%\n",
+            "Model file size: 0.309 MB\n",
+            "Average inference latency: 0.559 ms/image\n",
+            "P95 inference latency: 0.661 ms/image\n",
+            "Inference runs: 1000 (after 20 warm-up runs)\n"
+          ]
+        }
+      ]
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "\n",
+        "import csv\n",
+        "\n",
+        "results = [\n",
+        "    [\"Metric\", \"Baseline\", \"Pruned\"],\n",
+        "    [\"Test accuracy (%)\", 59.28, 65.14],\n",
+        "    [\"Parameters\", 140714, 79618],\n",
+        "    [\"Model file size (MB)\", 0.542, 0.309],\n",
+        "    [\"Average latency (ms)\", 0.562, 0.559],\n",
+        "    [\"P95 latency (ms)\", 0.764, 0.661],\n",
+        "]\n",
+        "\n",
+        "with open(\"benchmark_results.csv\", \"w\", newline=\"\") as f:\n",
+        "    writer = csv.writer(f)\n",
+        "    writer.writerows(results)\n",
+        "\n",
+        "print(\"Benchmark results saved to benchmark_results.csv\")\n"
+      ],
+      "metadata": {
+        "colab": {
+          "base_uri": "https://localhost:8080/"
+        },
+        "id": "-cePTmOmB6I5",
+        "outputId": "b96a7bda-cea4-46ac-9bca-f7ca16422d82"
+      },
+      "execution_count": 10,
+      "outputs": [
+        {
+          "output_type": "stream",
+          "name": "stdout",
+          "text": [
+            "Benchmark results saved to benchmark_results.csv\n"
+          ]
+        }
+      ]
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "\n",
+        "import torch\n",
+        "\n",
+        "device = torch.device(\"cuda\" if torch.cuda.is_available() else \"cpu\")\n",
+        "\n",
+        "# Recreate the model architectures\n",
+        "baseline_model = BaselineCNN().to(device)\n",
+        "pruned_model = PrunedCNN().to(device)\n",
+        "\n",
+        "# Load the saved trained weights\n",
+        "baseline_model.load_state_dict(\n",
+        "    torch.load(\"baseline_cnn.pth\", map_location=device, weights_only=True)\n",
+        ")\n",
+        "\n",
+        "pruned_model.load_state_dict(\n",
+        "    torch.load(\"pruned_cnn.pth\", map_location=device, weights_only=True)\n",
+        ")\n",
+        "\n",
+        "baseline_model.eval()\n",
+        "pruned_model.eval()\n",
+        "\n",
+        "print(\"Both trained models loaded successfully!\")\n",
+        "print(\"Device:\", device)\n"
+      ],
+      "metadata": {
+        "colab": {
+          "base_uri": "https://localhost:8080/"
+        },
+        "id": "BTSrezeTCC8C",
+        "outputId": "cf17e834-d783-49ec-ddc3-3738b4354096"
+      },
+      "execution_count": 12,
+      "outputs": [
+        {
+          "output_type": "stream",
+          "name": "stdout",
+          "text": [
+            "Both trained models loaded successfully!\n",
+            "Device: cuda\n"
+          ]
+        }
+      ]
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "\n",
+        "import time\n",
+        "import torch\n",
+        "import psutil\n",
+        "import os\n",
+        "\n",
+        "device = torch.device(\"cuda\" if torch.cuda.is_available() else \"cpu\")\n",
+        "process = psutil.Process(os.getpid())\n",
+        "\n",
+        "models = {\n",
+        "    \"Baseline CNN\": baseline_model,\n",
+        "    \"Pruned CNN\": pruned_model\n",
+        "}\n",
+        "\n",
+        "for name, model in models.items():\n",
+        "    model.eval()\n",
+        "    sample = torch.randn(1, 3, 32, 32, device=device)\n",
+        "\n",
+        "    # Warm-up: 20 inferences\n",
+        "    with torch.no_grad():\n",
+        "        for _ in range(20):\n",
+        "            model(sample)\n",
+        "\n",
+        "    torch.cuda.synchronize()\n",
+        "    torch.cuda.reset_peak_memory_stats(device)\n",
+        "\n",
+        "    # Measure 1000 inferences\n",
+        "    latencies = []\n",
+        "\n",
+        "    with torch.no_grad():\n",
+        "        for _ in range(1000):\n",
+        "            torch.cuda.synchronize()\n",
+        "            start = time.perf_counter()\n",
+        "            model(sample)\n",
+        "            torch.cuda.synchronize()\n",
+        "            latencies.append((time.perf_counter() - start) * 1000)\n",
+        "\n",
+        "    avg_latency = sum(latencies) / len(latencies)\n",
+        "    throughput = 1000 / avg_latency\n",
+        "    peak_gpu_mb = torch.cuda.max_memory_allocated(device) / (1024 ** 2)\n",
+        "    process_ram_mb = process.memory_info().rss / (1024 ** 2)\n",
+        "\n",
+        "    print(f\"\\n{name}\")\n",
+        "    print(f\"Average latency: {avg_latency:.3f} ms/image\")\n",
+        "    print(f\"Throughput: {throughput:.2f} images/second\")\n",
+        "    print(f\"Peak GPU allocated memory: {peak_gpu_mb:.2f} MB\")\n",
+        "    print(f\"Process RAM at measurement: {process_ram_mb:.2f} MB\")\n",
+        "\n",
+        "print(\"\\nWarm-up: 20 inferences per model\")\n",
+        "print(\"Measured: 1000 inferences per model\")\n",
+        "print(\"Device:\", torch.cuda.get_device_name(0))\n"
+      ],
+      "metadata": {
+        "colab": {
+          "base_uri": "https://localhost:8080/"
+        },
+        "id": "IEwj5r4GCVen",
+        "outputId": "41ae23c5-0d3f-489d-fe47-e8cd8e220948"
+      },
+      "execution_count": 13,
+      "outputs": [
+        {
+          "output_type": "stream",
+          "name": "stdout",
+          "text": [
+            "\n",
+            "Baseline CNN\n",
+            "Average latency: 0.574 ms/image\n",
+            "Throughput: 1740.92 images/second\n",
+            "Peak GPU allocated memory: 22.92 MB\n",
+            "Process RAM at measurement: 1746.93 MB\n",
+            "\n",
+            "Pruned CNN\n",
+            "Average latency: 0.571 ms/image\n",
+            "Throughput: 1750.92 images/second\n",
+            "Peak GPU allocated memory: 23.85 MB\n",
+            "Process RAM at measurement: 1746.93 MB\n",
+            "\n",
+            "Warm-up: 20 inferences per model\n",
+            "Measured: 1000 inferences per model\n",
+            "Device: Tesla T4\n"
+          ]
+        }
+      ]
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "\n",
+        "import csv\n",
+        "\n",
+        "rows = [\n",
+        "    [\"Metric\", \"Baseline CNN\", \"Pruned CNN\"],\n",
+        "    [\"Test accuracy (%)\", 59.28, 65.14],\n",
+        "    [\"Parameters\", 140714, 79618],\n",
+        "    [\"Model file size (MB)\", 0.542, 0.309],\n",
+        "    [\"Earlier average latency (ms)\", 0.562, 0.559],\n",
+        "    [\"P95 latency (ms)\", 0.764, 0.661],\n",
+        "    [\"Latest average latency (ms)\", 0.574, 0.571],\n",
+        "    [\"Throughput (images/sec)\", 1740.92, 1750.92],\n",
+        "    [\"Peak GPU allocated memory (MB)\", 22.92, 23.85],\n",
+        "    [\"Process RAM at measurement (MB)\", 1746.93, 1746.93],\n",
+        "]\n",
+        "\n",
+        "with open(\"benchmark_results.csv\", \"w\", newline=\"\") as f:\n",
+        "    writer = csv.writer(f)\n",
+        "    writer.writerows(rows)\n",
+        "\n",
+        "print(\"Benchmark CSV updated successfully!\")\n"
+      ],
+      "metadata": {
+        "colab": {
+          "base_uri": "https://localhost:8080/"
+        },
+        "id": "EW2v0NVlCmo6",
+        "outputId": "f1874b7a-65d2-4dff-f132-719b73cbaca4"
+      },
+      "execution_count": 15,
+      "outputs": [
+        {
+          "output_type": "stream",
+          "name": "stdout",
+          "text": [
+            "Benchmark CSV updated successfully!\n"
+          ]
+        }
+      ]
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "\n",
+        "import os\n",
+        "import zipfile\n",
+        "from google.colab import files\n",
+        "\n",
+        "output_files = [\n",
+        "    \"baseline_cnn.pth\",\n",
+        "    \"pruned_cnn.pth\",\n",
+        "    \"baseline_training_log.csv\",\n",
+        "    \"compact_training_log.csv\",\n",
+        "    \"benchmark_results.csv\",\n",
+        "    \"experiment_summary.csv\",\n",
+        "    \"parameter_comparison.png\",\n",
+        "    \"model_size_comparison.png\",\n",
+        "    \"accuracy_comparison.png\",\n",
+        "    \"latency_comparison.png\"\n",
+        "]\n",
+        "\n",
+        "with zipfile.ZipFile(\n",
+        "    \"project_results.zip\", \"w\"\n",
+        ") as zipf:\n",
+        "    for filename in output_files:\n",
+        "        if os.path.exists(filename):\n",
+        "            zipf.write(filename)\n",
+        "\n",
+        "files.download(\"project_results.zip\")\n"
+      ],
+      "metadata": {
+        "colab": {
+          "base_uri": "https://localhost:8080/",
+          "height": 17
+        },
+        "id": "IqKjSnO-UEUz",
+        "outputId": "218fc987-5b88-4f7e-f504-fb8cb474ea6c"
+      },
+      "execution_count": 16,
+      "outputs": [
+        {
+          "output_type": "display_data",
+          "data": {
+            "text/plain": [
+              "<IPython.core.display.Javascript object>"
+            ],
+            "application/javascript": [
+              "\n",
+              "    async function download(id, filename, size) {\n",
+              "      if (!google.colab.kernel.accessAllowed) {\n",
+              "        return;\n",
+              "      }\n",
+              "      const div = document.createElement('div');\n",
+              "      const label = document.createElement('label');\n",
+              "      label.textContent = `Downloading \"${filename}\": `;\n",
+              "      div.appendChild(label);\n",
+              "      const progress = document.createElement('progress');\n",
+              "      progress.max = size;\n",
+              "      div.appendChild(progress);\n",
+              "      document.body.appendChild(div);\n",
+              "\n",
+              "      const buffers = [];\n",
+              "      let downloaded = 0;\n",
+              "\n",
+              "      const channel = await google.colab.kernel.comms.open(id);\n",
+              "      // Send a message to notify the kernel that we're ready.\n",
+              "      channel.send({})\n",
+              "\n",
+              "      for await (const message of channel.messages) {\n",
+              "        // Send a message to notify the kernel that we're ready.\n",
+              "        channel.send({})\n",
+              "        if (message.buffers) {\n",
+              "          for (const buffer of message.buffers) {\n",
+              "            buffers.push(buffer);\n",
+              "            downloaded += buffer.byteLength;\n",
+              "            progress.value = downloaded;\n",
+              "          }\n",
+              "        }\n",
+              "      }\n",
+              "      const blob = new Blob(buffers, {type: 'application/binary'});\n",
+              "      const a = document.createElement('a');\n",
+              "      a.href = window.URL.createObjectURL(blob);\n",
+              "      a.download = filename;\n",
+              "      div.appendChild(a);\n",
+              "      a.click();\n",
+              "      div.remove();\n",
+              "    }\n",
+              "  "
+            ]
+          },
+          "metadata": {}
+        },
+        {
+          "output_type": "display_data",
+          "data": {
+            "text/plain": [
+              "<IPython.core.display.Javascript object>"
+            ],
+            "application/javascript": [
+              "download(\"download_7de3e1b5-fef7-4ed9-8e77-63036a1bf96d\", \"project_results.zip\", 892255)"
+            ]
+          },
+          "metadata": {}
+        }
+      ]
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "%%writefile main.py\n",
+        "# Paste your FULL CNN project Python code here\n",
+        "\n",
+        "import os\n",
+        "import zipfile\n",
+        "from google.colab import files\n",
+        "\n",
+        "output_files = [\n",
+        "    \"baseline_cnn.pth\",\n",
+        "    \"pruned_cnn.pth\",\n",
+        "    \"baseline_training_log.csv\",\n",
+        "    \"compact_training_log.csv\",\n",
+        "    \"benchmark_results.csv\",\n",
+        "    \"experiment_summary.csv\",\n",
+        "    \"parameter_comparison.png\",\n",
+        "    \"model_size_comparison.png\",\n",
+        "    \"accuracy_comparison.png\",\n",
+        "    \"latency_comparison.png\"\n",
+        "]\n",
+        "\n",
+        "with zipfile.ZipFile(\n",
+        "    \"project_results.zip\", \"w\"\n",
+        ") as zipf:\n",
+        "    for filename in output_files:\n",
+        "        if os.path.exists(filename):\n",
+        "            zipf.write(filename)\n",
+        "\n",
+        "files.download(\"project_results.zip\")\n"
+      ],
+      "metadata": {
+        "colab": {
+          "base_uri": "https://localhost:8080/"
+        },
+        "id": "AtfiDWBSVEx-",
+        "outputId": "612c4f68-8f1a-4250-cf85-e68a49460ba3"
+      },
+      "execution_count": 17,
+      "outputs": [
+        {
+          "output_type": "stream",
+          "name": "stdout",
+          "text": [
+            "Writing main.py\n"
+          ]
+        }
+      ]
+    }
+  ]
+}
